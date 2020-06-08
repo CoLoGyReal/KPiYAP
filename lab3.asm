@@ -1,388 +1,428 @@
-.model tiny
-.code
-org 100h
-start:
-jmp main
+.model small
+.stack  256
+.data
+ 
+Rows            equ    2                ;максимальное количество строк
+Columns         equ    2                ;максимальное количество столбцов
+myMatrixSize    equ    Rows*Columns     ;максимальный размер матрицы
+ 
+m               dw     Rows                    ;текущее количество строк
+n               dw     Columns                 ;текущее количество столбцов
+Matrix          dw     myMatrixSize dup(0)     ;матрица
+ 
+NewLine         db     0dh, 0ah, '$'   ;"перевод строки"
+msInput         db     'Input matrix', '$'
+msCurrent       db     'Current matrix', '$' 
+
+
+str_len         equ    $-msResult
+my_str          db     str_len dup (?)  
+
+msResult        db     'Result: ','$'
+asPrompt1       db     'element[', '$'      ;строка приглашения
+asPrompt2       db     ',', '$'
+asPrompt3       db     ']= ', '$'   
+
+not_memory      db     'ERROR: overflow','$'
+
+Min             dw      -32768
+ 
+kbMinLen        equ     6+1             ;буфер ввода с клавиатуры Fn 0ah
+kbInput         db      kbMinLen,kbMinLen dup(0)
+ 
+.code 
+ 
+; преобразования строки в число
+; на входе:
+; ds:[si] - строка с числом
+; ds:[di] - адрес числа
+; на выходе
+; ds:[di] - число
+; CF - флаг переноса (при ошибке - установлен, иначе - сброшен)
+StringInNumber PROC
+        push    ax
+        push    bx
+        push    cx
+        push    dx
+        push    ds
+        push    es
+        push    si
+        push    ds
+        pop     es
+ 
+        mov     cl, ds:[si]
+        xor     ch, ch
+ 
+        inc     si
+ 
+        mov     bx, 10
+        xor     ax, ax
+ 
+        ;если в строке первый символ '-'
+        ; - перейти к следующему
+        ; - уменьшить количество рассматриваемых символов
+        cmp     [si], '-'
+        jne     Conversion
+        inc     si
+        dec     cx
+Conversion:
+        mul     bx         ; умножаем ax на 10 ( dx:ax=ax*bx )
+        mov     [di], ax   ; игнорируем старшее слово
+        cmp     dx, 0      ; проверяем, результат на переполнение
+        jnz     Error
+        mov     al, [si]   ; Преобразуем следующий символ в число
+        cmp     al, '0'
+        jb      Error
+        cmp     al, '9'
+        ja      Error
+        sub     al, '0'
+        xor     ah, ah
+        add     ax, [di]
+        jc      Error    
+        cmp     ax, 8000h  ;32768
+        ja      Error
+        inc     si
+ 
+        loop    Conversion
+ 
+        pop     si         ;проверка на знак
+        push    si
+        inc     si
+        cmp     byte ptr [si], '-'
+        jne     Check    ;если должно быть положительным
+        neg     ax       ;если должно быть отрицательным
+        jmp     SavingResult
+Check:                   ;дополнительная проверка, когда при вводе положительного числа получили отрицательное
+        or      ax, ax   
+        js      Error
+SavingResult:            ;сохранить результат
+        mov     [di], ax
+        clc
+        pop     si
+        pop     es
+        pop     ds
+        pop     dx
+        pop     cx
+        pop     bx
+        pop     ax
+        ret
+Error:
+        xor     ax, ax
+        mov     [di], ax
+        stc
+        pop     si
+        pop     es
+        pop     ds
+        pop     dx
+        pop     cx
+        pop     bx
+        pop     ax
+        ret
+StringInNumber ENDP
+ 
+; выводит число из регистра AX на экран
+; входные данные:
+; ax - число для отображения
+Show_AX proc
+        push    ax
+        push    bx
+        push    cx
+        push    dx
+        push    di
+ 
+        mov     cx, 10
+        xor     di, di          ; di - кол. цифр в числе
+ 
+        ; если число в ax отрицательное, то
+        ;1) напечатать '-'
+        ;2) сделать ax положительным
+        or      ax, ax
+        jns     NoNumberSign
+        push    ax
+        mov     dx, '-'
+        mov     ah, 2           ; ah - функция вывода символа на экран
+        int     21h
+        pop     ax
+ 
+        neg     ax
+ 
+NoNumberSign:
+        xor     dx, dx
+        div     cx              ; dl = num mod 10
+        add     dl, '0'         ; перевод в символьный формат
+        inc     di
+        push    dx              ; складываем в стэк
+        or      ax, ax
+        jnz     NoNumberSign
+        ; выводим из стэка на экран
+Show:
+        pop     dx              ; dl = очередной символ
+        mov     ah, 2           ; ah - функция вывода символа на экран
+        int     21h
+        dec     di              ; повторяем пока di<>0
+        jnz     Show
+ 
+        pop     di
+        pop     dx
+        pop     cx
+        pop     bx
+        pop     ax
+        ret
+Show_AX endp
+ 
+; На входе
+;m     - количество строк
+;n     - количество столбцов
+;ds:dx - адрес матрицы
+ShowMatrix PROC 
+        pusha
+        mov     si, 0  ; строка
+        mov     di, 0  ; столбец
+        mov     bx, dx
+ 
+ShowRow:
+        mov     ax, [bx]
+        call    Show_AX
+ 
+        mov     ah, 02h
+        mov     dl, ' '
+        int     21h
+ 
+        add     bx, 2
+ 
+        inc     di
+ 
+        cmp     di, n
+        jb      ShowRow
+ 
+        mov     dx, OFFSET NewLine
+        mov     ah, 09h
+        int     21h
+ 
+        mov     di, 0 
+        inc     si 
+        cmp     si, m
+        jb      ShowRow
+ 
+        popa
+        ret
+ShowMatrix ENDP
+ 
+; На входе
+;ds:dx - адрес матрицы
+InputMatrix PROC
+        pusha
+        ;bx - адрес очередного элемента матрицы
+        mov     bx, dx
+        ;Вывод на экран приглашения ввести матрицу
+        mov     ah, 09h
+        mov     dx, OFFSET msInput
+        int     21h
+ 
+        mov     ah, 09h
+        mov     dx, OFFSET NewLine
+        int     21h
+ 
+        mov     si, 1  ; строка (индекс)
+        mov     di, 1  ; столбец (индекс)
+InpInt:   
+        mov     ah, 09h
+        mov     dx, OFFSET NewLine
+        int     21h
+        ;вывод на экран приглашения 'a[1,1]='
+        lea     dx, asPrompt1
+        mov     ah, 09h
+        int     21h
+        mov     ax,     si
+        call    Show_AX
+        lea     dx, asPrompt2
+        mov     ah, 09h
+        int     21h
+        mov     ax,     di
+        call    Show_AX
+        lea     dx, asPrompt3
+        mov     ah, 09h
+        int     21h
+ 
+        ;Ввод строки
+        mov     ah, 0ah
+        mov     dx, OFFSET kbInput
+        int     21h
+ 
+        ;Преобразование строки в число
+        push    di
+        push    si
+        mov     si, OFFSET kbInput+1
+        mov     di, bx
+        call    StringInNumber
+        pop     si
+        pop     di
+        jc      InpInt  ; если ошибка преобразования - повторить ввод
         
-numbuf db 9 dup (?)
-badnum db "Bad number! Try again: $"  
-msg_elem1 db  "mas[$"
-msg_elem2 db  "][$"
-msg_elem3 db  "] = $"
-msg_overflow db  "overflow!$"
-mrows   equ 5                       ; col-vo strok
-mcols   equ 6                       ; col-vo stolbcov
-mcells  equ mrows * mcols           ; razmer 
-matrix  dw  mcells dup (?)
-msg_min db  "Minimal columns: $"
+        cmp     word ptr [bx],  32767
+        jle     YetTest
+        jmp     InpInt
+YetTest:
+        cmp     word ptr [bx],  -32768
+        jge     AllGood
+        jmp     InpInt
+AllGood:
+        ;на экране - перейти к следующей строке
+        mov     dx, OFFSET NewLine
+        mov     ah, 09h
+        int     21h
+        ;перейти к следующему элементу матрицы
+        add     bx, 2 
+        inc     di 
+        cmp     di, n
+        jbe     InpInt 
+        mov     di, 1 
+        inc     si 
+        cmp     si, m
+        jbe     InpInt 
+        popa
+        ret
+InputMatrix ENDP 
 
+
+
+
+error_message proc
+        mov     dx, OFFSET not_memory
+        mov     ah, 09h
+        int     21h
+        mov     ax, 4c00h
+        int     21h
+    ENDP
+
+ 
+Main:
+        mov     dx, @data
+        mov     ds, dx
+ 
+        mov     dx, OFFSET Matrix
+        call    InputMatrix
+ 
+        mov     ah, 09h
+        mov     dx, OFFSET msCurrent
+        int     21h
+ 
+        mov     ah, 09h
+        mov     dx, OFFSET NewLine
+        int     21h
+ 
+        mov     dx, OFFSET Matrix
+        call    ShowMatrix
         
-pushAll macro
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-endm
+        
+        
+        
+        ;поиск минимальной суммы в столбцах
+        mov     ax, 7FFFh   ;максимальное значение суммы в матрице
+        mov     dx, n       ;приращение смещения адреса для перехода
+        shl     dx, 1       ;к следующему элементу столбца
+        mov     cx, n
+        lea     si, Matrix   
+        
 
-popAll macro
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-endm
-
-mcrPrintChar macro char
-    mov dl, char
-    mov ah, 02h
-    int 21h
-endm
-
-mcrNewline macro              ; \n
-    mcrPrintChar 13
-    mcrPrintChar 10
-endm
-
-mcrPrintMsg macro msg
-    mov ah, 09h
-    mov dx, offset msg
-    int 21h
-endm
-
-printNum proc                          ; vivod chisla      
-    arg_num equ word ptr [bp+4]        ; dostaem chislo iz steka
-    push bp
-    mov bp, sp                         ; v bp zanosim smeschenie na vershiny
-    pushAll
-
-    ; neg negative number
-    mov ax, arg_num
-    cmp ax, 0
-    jge printNumNeg
-        neg ax
-    printNumNeg:
-
-    ; push digits to stack
-    mov bx, 0
-    printNumConvert:
-        mov cx, 10
-        mov dx, 0
-        div cx
-      
-        add dl, "0"
-        push dx
-        inc bx
-
-        cmp ax, 0
-        jne printNumConvert
-
-    ; push sign
-    cmp arg_num, 0
-    jge printNumAfterSign
-        push "-"                   ; push - , esli chislo < 0
-        inc bx
-    printNumAfterSign:
-
-    ; print stack
-    printNumPrint:
-        pop dx
-        dec bx
-        mcrPrintChar dl
-
-        cmp bx, 0
-        jg printNumPrint
-
-    popAll
-    pop bp
-    ret 2
-printNum endp
-
-
-
-inputNum proc                                   ; vvod chisla            
-    ; memory on stack for result value
-    pop ax
-    push ax
-    push ax
-    result equ word ptr [bp+4]
-
-    push bp
-    mov bp, sp
-    pushAll
-
-    ; input string
-    inputNumRead:
-        mov numbuf[0], 7
-        mov ah, 0Ah
-        mov dx, offset numbuf
-        int 21h
-        mcrNewline
-
-    ; check string
-    mov bx, 0
-    mov bl, numbuf[1]
-    cmp bx, 0 ;             check if null
-    je inputNumValidateAgain
-    inputNumValidate:                        ; validation
-        dec bx
-        mov al, numbuf[2+bx]
-
-        cmp al, '-'
-        je inputNumSkipNumCheck
-        cmp al, '+'
-        je inputNumSkipNumCheck
-
-        cmp al, '0'
-        jl inputNumValidateAgain               ; again
-        cmp al, '9'
-        jg inputNumValidateAgain
-
-        inputNumSkipNumCheck:
-
-        cmp bx, 0
-        jg inputNumValidate
-    jmp inputNumValidateAfter
-
-    ; if validate failed
-    inputNumValidateAgain:
-        mov ah, 09h
-        mov dx, offset badnum
-        int 21h
-
-        jmp inputNumRead
-    inputNumValidateAfter:
-
-    ; parse num
-    mov ax, 0
-    mov bx, 0
-    mov cx, 0
-    mov si, 0 ; neg flag
-    inputNumParse:
-        mov cl, numbuf[2+bx]
-        cmp cl, '+'
-        je inputNumParseNextIter
-
-        cmp cl, '-'
-        jne inputNumParseNotNeg              ; esli > 0
-            xor si, 1
-            jmp inputNumParseNextIter
-        inputNumParseNotNeg:
-
-        sub cl, '0'
-
-        ; check overflow and multiple by 10
-        cmp ax, 3276 ; max possible value for mul
-        jg inputNumValidateAgain
-        mov dx, 10
-        mul dx
-
-        ; check overflow and add cx
-        mov di, 7FFFh ; check max value to add
-        sub di, ax                             ; error esli + do perepolnenia
-        cmp cx, di
-        jg inputNumValidateAgain
-        add ax, cx                       ; akym
-
-        inputNumParseNextIter:
-        inc bx
-        cmp bl, numbuf[1]
-        jl inputNumParse
-
-    ; neg if flag active
-    cmp si, 1
-    jne inputNumNotNeg
-        neg ax
-    inputNumNotNeg:
-
-    mov result, ax
-
-    popAll
-    pop bp
-    ret
-inputNum endp
-
-printMatrix proc                                    ; vivod matrix
-    arg_cols   equ word ptr [bp+4]
-    arg_rows   equ word ptr [bp+6]       
-    arg_matrix equ word ptr [bp+8]     
-    push bp
-    mov bp, sp
-    pushAll
-
-    mov bx, arg_matrix 
-    mov di, 0                           ; stroka
-    mov si, 0                           ; stolbec
-    printMatrixNext:
-        push [bx]
-        call printNum
-        add bx, 2
-
-        mcrPrintChar 9 ;               vivod 'tab'
-        inc si
-        cmp si, arg_cols
-        jl printMatrixNext
-
-        mcrNewline
-        mov si, 0
-        inc di
-        cmp di, arg_rows
-        jl printMatrixNext
-
-    popAll
-    pop bp
-    ret 6
-printMatrix endp
-
-
-
-inputMatrix proc                                            ; vvod matrix
-    arg_cols   equ word ptr [bp+4]                     ; prisvaivaem
-    arg_rows   equ word ptr [bp+6]
-    arg_matrix equ word ptr [bp+8]
-    push bp
-    mov bp, sp
-    pushAll
-
-    mov bx, arg_matrix      ; smeschenie matr
-    mov di, 0 ; stroki
-    mov si, 0 ; stolbci
-    inputMatrixNext:    
+ForJ:                   ;цикл по строкам
+        mov     bx, 0   ;сумма элементов столбца
+        push    cx
+        mov     cx, m   ;количество элементов в столбце
+        push    si
+        ForI:
+                add     bx, [si]
+                 jo     error_message        
+                add     si, dx  
                
-        mcrPrintMsg msg_elem1        ; vivod 'shapki'
-        push di
-        call printNum
-        mcrPrintMsg msg_elem2
-        push si
-        call printNum
-        mcrPrintMsg msg_elem3
-
-        call inputNum                ; vvod chisla
-        pop ax
-        mov [bx], ax
-        add bx, 2
-
-        inc si                       ; perehod na sled element stroki
-        cmp si, arg_cols
-        jl inputMatrixNext
-
-        mov si, 0                    ; perehod na sled stroky
-        inc di
-        cmp di, arg_rows
-        jl inputMatrixNext
-
-    popAll
-    pop bp
-    ret 6                           ; vozvrat iz proc s ochistkoi steka na 6 bait  
-inputMatrix endp
-
-
-
-minColsMatrix proc                                         ; nahogdenie min stolbca
-    arg_cols   equ word ptr [bp+4]          ;    
-    arg_rows   equ word ptr [bp+6]          ;   dostaem iz steka
-    arg_matrix equ word ptr [bp+8]          ;   arg_cols = 6, arg_rows = 5, arg_matrix = 5*6 = 30
-    push bp
-    mov bp, sp
-    pushAll
-
-    mov cx, 7FFFh ;                 min sum  ( 7FFFh = 32767  )
-    mov si, 0 ; 1 stroka
-    minColsMatrixNextCol:
-        mov ax, 0 ;                     summa etogo stolbca
-        mov bx, arg_matrix ; ptr
-        add bx, si ;                 double bcs word
-        add bx, si
-        mov di, 0 ;  dly perehoda na 1 element novoi stroki
-        minColsMatrixNextRow:
-            add ax, [bx]                                ; slogenie elementov stolbca
-            jo minColsMatrixFail                        ; proverka flaga perepolnenia 
-
-            add bx, arg_cols ; double bcs word          ; sdvig na next element stolbca
-            add bx, arg_cols 
-            
-            inc di
-            cmp di, arg_rows
-            jl minColsMatrixNextRow
-
-        cmp ax, cx
-        jge minColsMatrixNotLesser
-            mov cx, ax                         ; sohranenie novogo znachenia
-        minColsMatrixNotLesser:
-
-        inc si
-        cmp si, arg_cols
-        jl minColsMatrixNextCol
-
-    mov si, 0 ; col 
-    
-    minColsMatrixOutNextCol:                            ;   bloc dly vivoda nomera stolbca 
-        mov ax, 0 ; sum of this col
-        mov bx, arg_matrix
-        add bx, si
-        add bx, si
-        mov di, 0 ; row  
+                loop    ForI       
+        pop     si
+        pop     cx
+ 
+        cmp     ax, bx
+        jle     Next
+        mov     ax, bx 
+        mov     [Min], ax
+Next:
+        add     si, 2
+        loop    ForJ  
         
-        minColsMatrixOutNextRow:
-            add ax, [bx]                            ; summa stolbca
-
-            add bx, arg_cols
-            add bx, arg_cols
-            inc di
-            cmp di, arg_rows
-            jl minColsMatrixOutNextRow
-
-        cmp ax, cx                                 ; sravnenie sohranennoi sum i poluchennoi
-        jne minColsMatrixNotEqual
-            mov di, si
-            inc di
-            push di
-            call printNum              ; vivod nomera stolbca
-            mcrPrintChar " "           ; elsi neskol'ko
+;Вывод результатов на экран  ==================================================================================== 
             
-        minColsMatrixNotEqual:
+        pushf        
+        pusha     
+        xor     cx, cx
+        xor     si, si
+        xor     di, di
+        mov	    cx, str_len
+        lea	    si, msResult
+        lea	    di, my_str
+        rep	movsb    
+        ;========================================================================================================
+          
+        popa
+        popf
 
-        inc si
-        cmp si, arg_cols
-        jl minColsMatrixOutNextCol
+        mov     ah, 09h
+        mov     dx, OFFSET my_str
+        int     21h
+ 
+        mov     ah, 09h
+        mov     dx, OFFSET NewLine
+        int     21h     
+            
+;поиск индексов с минимальной суммой в столбцах
+        
+        mov     di, 0       ;номер столбца с максимальной суммой
+        mov     dx, n       ;приращение смещения адреса для перехода
+        shl     dx, 1       ;к следующему элементу столбца
+        mov     cx, n
+        lea     si, Matrix   
+        
+
+ForJ2:                      ;цикл по строкам
+        mov     bx, 0       ;сумма элементов столбца
+        push    cx
+        mov     cx, m       ;количество элементов в
+        push    si
+       ForI2:
+                add     bx, [si]
+                add     si, dx
+                loop    ForI2
+        pop     si
+        pop     cx
+ 
+        cmp     [Min], bx
+        jne     Next2
+      
+        mov     di, n       ;di - номер столбца с максимальной суммой
+        sub     di, cx  
+        
+        mov     ax, di
+        inc     ax
+                                   
+        pushf        
+        pusha
+        
+        add ax, 48
+        mov dx, ax
+        mov ah,02h
+        int 21h
+        
+        
+        mov     ah, 09h
+        mov     dx, OFFSET NewLine
+        int     21h
+        popa
+        popf
+                             
+Next2:
+        add     si, 2
+        loop    ForJ2        
 
 
-    jmp minColsMatrixNoFail                             
-    
-    minColsMatrixFail:                ; pri perepolnenii
-        mcrPrintMsg msg_overflow
-    
-    minColsMatrixNoFail:
-
-    popAll
-    pop bp
-    ret 6
-minColsMatrix endp
-
-
-main:
-push offset matrix                 ; sohranyem v steke dly ispol'zovania 
-push mrows
-push mcols
-call inputMatrix
-
-push offset matrix
-push mrows
-push mcols
-call printMatrix
-
-mcrPrintMsg msg_min
-
-push offset matrix
-push mrows
-push mcols
-call minColsMatrix
-
-
-; terminate program
-mov ah, 4ch
-int 21h
-
-end start
+ExitFromProg:        
+        mov     ax, 4c00h
+        int     21h
+         
+END     Main
