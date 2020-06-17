@@ -73,7 +73,7 @@
    
 .code
 
-proc hideCursor near;сокрытие курсора
+proc hideCursor near
     pusha
     mov ah , 02
     mov bh , 00
@@ -83,17 +83,17 @@ proc hideCursor near;сокрытие курсора
     ret
 endp
 
-proc coordsToAddress near;получаем смещение для элемента с координатами (dl(х) , dh(у))
-                         ;   si - res
+proc coordsToAddress near
+                         
     push ax
     push cx
 
-    mov al , dh;заносим 'y'                 
-    cbw        ;преобразование байта в слово
+    mov al , dh           
+    cbw        
     mul w
     xor ch , ch
-    mov cl , dl ;заносим х                                                                                                                                                                                                                        
-    add ax , cx ;добавляем к значению 'y', умноженного на длину строки, элемент в данной строке                                                                                                                                                  
+    mov cl , dl                                                                                                                                                                                                                         
+    add ax , cx                                                                                                                                                 
     mov si , ax
     mov [currentAdr],ax
     pop cx
@@ -107,33 +107,26 @@ proc printFromField near
 ;   
     pusha
     
-    mov ah , 02;установит положение курсора
-    xor bh , bh;bh-стр dh-строка           
+    mov ah , 02
+    xor bh , bh           
     int 10h
     
     call coordsToAddress
 ;======================================================== 
 
-     push  0B800h                   ;
+     push  0B800h                 
      pop   es     
 
         mov ax,si
         mul two
        mov di,ax
      mov es:[di], ' '  
-     inc di                  ;  
+     inc di                
      mov al,field[si] 
-     mov es:[di],al  ; 
+     mov es:[di],al   
      
 ;========================================================
 
-;    mov ah , 09             ; писать символ в текущей позиции курсора       
-;    mov al , ' '            ; записываемый символ 
-;                              
-;    mov bl , [field + si]   ; видео атрибут (текст) или цвет (графика)      
-;    mov cx , 1              ; счетчик (сколько экземпляров символа записать)
-;    int 10h                 
-    
     call hideCursor
     
     popa
@@ -141,9 +134,6 @@ proc printFromField near
 endp
 
 proc setToField near
-;   dh - y 
-;   dl - x
-;   al - значение
     pusha
     
     mov ah , 02
@@ -158,7 +148,7 @@ proc setToField near
     ret
 endp    
 
-proc clearKeyboardBuffer near ;очистить буффер клавиатуры
+proc clearKeyboardBuffer near
 
     push ax
     push es
@@ -166,8 +156,8 @@ proc clearKeyboardBuffer near ;очистить буффер клавиатуры
     mov bx , 041eh
     mov	ax, 0000h
     mov	es, ax
-    mov	es:[041ah], bx  ;хранится адрес начала
-    mov	es:[041ch], bx  ;хранится адрес конца 
+    mov	es:[041ah], bx 
+    mov	es:[041ch], bx  
     pop bx
     pop	es
     pop	ax
@@ -175,7 +165,7 @@ proc clearKeyboardBuffer near ;очистить буффер клавиатуры
     ret
 endp
 
-proc printTime near ; вывести время
+proc printTime near 
     pusha 
     
     mov cx , 10
@@ -210,7 +200,6 @@ proc printTime near ; вывести время
     int 10h
     popa
     mov ah , 09h
-;   старший разряд минуты   
     mov al , dl
     int 10h
     
@@ -220,8 +209,7 @@ proc printTime near ; вывести время
     mov ah , 02
     xor bh , bh
     int 10h
-    popa
-;   младший разряд минуты    
+    popa  
     mov al , dh
     int 10h
     
@@ -251,7 +239,6 @@ proc printTime near ; вывести время
     int 10h
     popa
     mov ah , 09h
-;   старший разряд секунды
     mov al , dl
     int 10h
     
@@ -262,7 +249,6 @@ proc printTime near ; вывести время
     xor bh , bh
     int 10h
     popa
-;   младший разряд секунды
     mov al , dh
     int 10h
     
@@ -272,7 +258,7 @@ proc printTime near ; вывести время
     ret
 endp
 
-proc printField near    ; печатает поле на экран
+proc printField near 
     pusha
     
     xor dx , dx
@@ -281,7 +267,7 @@ proc printField near    ; печатает поле на экран
         
         call printFromField
         
-        inc dl      ;x
+        inc dl   
         cmp dl , w
         jb fieldPrintColumns
         
@@ -294,7 +280,7 @@ proc printField near    ; печатает поле на экран
     ret
 endp
 
-proc loadLevel near ; загрузка уровня из файла
+proc loadLevel near 
     pusha
     
     xor di , di
@@ -314,17 +300,17 @@ proc loadLevel near ; загрузка уровня из файла
     ret
 endp    
 
-proc printXonix near    ; отрисовывает xonix в текущей позиции
+proc printXonix near   
     pusha
     
-    mov ah , 02         ; установка позиции курсора
+    mov ah , 02     
     xor bh , bh
     int 10h
     
-    mov ah , 09         ; писать символ в текущей позиции курсора
-    mov al , 01h        ; записываемый символ                     
-    mov bl , 11110000B  ; атрибуты символа                        
-    mov cx , 1          ; 1 символ                                
+    mov ah , 09      
+    mov al , 01h                          
+    mov bl , 11110000B                          
+    mov cx , 1                                    
     int 10h
     
     call hideCursor
@@ -333,18 +319,18 @@ proc printXonix near    ; отрисовывает xonix в текущей позиции
     ret
 endp    
 
-proc printEnemy near    ;отрисовка врага
+proc printEnemy near  
     pusha
     
-    mov ah , 02         ;перемещение курсора 
-    xor bh , bh         ;
-    int 10h             ;
+    mov ah , 02     
+    xor bh , bh     
+    int 10h        
     
-    mov ah , 09         ;вывод красного пробела
-    mov al , 02h        ;
-    mov bl , 00101100B  ;
-    mov cx , 1          ;
-    int 10h             ;
+    mov ah , 09    
+    mov al , 02h    
+    mov bl , 00101100B  
+    mov cx , 1        
+    int 10h         
     
     call hideCursor
     
@@ -352,7 +338,7 @@ proc printEnemy near    ;отрисовка врага
     ret
 endp    
 
-proc calcScore near ;считаем очки
+proc calcScore near
     pusha
     
     xor dx , dx
@@ -379,7 +365,7 @@ proc calcScore near ;считаем очки
     ret
 endp    
 
-proc printScore near    ; подсчет и вывод количества очков через стэк
+proc printScore near   
     pusha
     
     call calcScore
@@ -416,10 +402,10 @@ proc printScore near    ; подсчет и вывод количества очков через стэк
     
     xor di , di
     
-    mov bl , [whiteText]    ; белый текст на синем фоне 
-    xor bh , bh             ; страница 0                
+    mov bl , [whiteText]   
+    xor bh , bh                         
                                                         
-    mov cx , 1              ; 1 символ                  
+    mov cx , 1                          
     
     printScoreLoop:
     
@@ -446,7 +432,6 @@ proc printScore near    ; подсчет и вывод количества очков через стэк
 endp  
 
 proc remap near
-; заменить все символы с номером сh на номер bh в numbersMask
     pusha
     
     xor si , si
@@ -468,7 +453,7 @@ proc remap near
     ret
 endp    
 
-proc initMask near  ; заполнение массива-маски
+proc initMask near 
     pusha
     
     mov dx , 0101h
@@ -481,19 +466,19 @@ proc initMask near  ; заполнение массива-маски
         cmp al , [land]
         jne maskItemFinish
         
-        mov ah , [numbersMask + si]     ; A                
-        mov bh , [numbersMask + si - 1] ; B                
+        mov ah , [numbersMask + si]                 
+        mov bh , [numbersMask + si - 1]              
                                                            
-        sub si , [wWord]                ; Смещаемся вверх  
-        mov ch , [numbersMask + si]     ; C                
-        add si , [wWord]                ; смещаемся обратно
+        sub si , [wWord]            
+        mov ch , [numbersMask + si]          
+        add si , [wWord]              
         
         cmp ch , 0
         jne notCase2
         cmp bh , 0
         jne notCase2
         
-        mov ah , [maxNumber]        ; записать в ah максимальный номер участка
+        mov ah , [maxNumber]       
         inc ah                      
         mov [maxNumber] , ah
         mov [numbersMask + si] , ah
@@ -550,7 +535,7 @@ proc initMask near  ; заполнение массива-маски
     ret
 endp    
 
-proc initEnemiesNumbers near    ;запомнить номера областей с врагами
+proc initEnemiesNumbers near 
     pusha
     
     xor di , di
@@ -571,7 +556,7 @@ proc initEnemiesNumbers near    ;запомнить номера областей с врагами
     ret
 endp    
 
-proc autofill near  ;заполнение синим
+proc autofill near 
     pusha
     
     mov dx , 0101h
@@ -597,14 +582,13 @@ proc autofill near  ;заполнение синим
             add di , 2
             cmp di , [enemiesCount]
             jb enemiesFill
-        ; если в этой области нету врагов
         mov bh , [sea]
         mov [field + si] , bh
         
         fillFinished:
         
-        xor al , al                     ; обнуляем маску на текущем элементе 
-        mov [numbersMask + si ] , al    ;                                    
+        xor al , al                    
+        mov [numbersMask + si ] , al                               
         
         notFilling:
         
@@ -621,7 +605,7 @@ proc autofill near  ;заполнение синим
     ret
 endp    
 
-proc fill near  ; заполнение дороги и свободных областей
+proc fill near 
     pusha
 
     mov dx , [currentPos]
@@ -679,7 +663,7 @@ proc fill near  ; заполнение дороги и свободных областей
     ret
 endp    
 
-proc moveXonix near;движение xonixа по спец алгоритму
+proc moveXonix near
     push ax
     push dx
     
@@ -733,11 +717,7 @@ proc moveXonix near;движение xonixа по спец алгоритму
     ret
 endp
 
-proc moveEnemies near   ;движение врага по спец алгоритму
-;   dh - y
-;   dl - x
-;   bh - y
-;   bl - x
+proc moveEnemies near  
     pusha
     
     xor di , di
@@ -749,13 +729,11 @@ proc moveEnemies near   ;движение врага по спец алгоритму
     mov bx , [enemiesDirections + di]
 ;     Horizontal
     add dl , bl
-;   Можно ли продолжать двигаться дальше    
     call coordsToAddress
     mov cl , [field + si]
     cmp cl , [sea]
     jne moveHorizontalGood
-;   Пытаемся отразить    
-    neg bl      ;отражение
+    neg bl  
     
     add dl , bl
     add dl , bl
@@ -764,19 +742,16 @@ proc moveEnemies near   ;движение врага по спец алгоритму
     mov cl , [field + si]
     cmp cl , [sea]
     jne moveHorizontalGood
-;   По этой оси больше двигаться нельзя
     sub dl , bl
     xor bl , bl
     
     moveHorizontalGood:
 ;     Vertical
     add dh , bh
-;   Можно ли продолжать двигаться дальше
     call coordsToAddress
     mov cl , [field + si]
     cmp cl , [sea]
     jne moveVerticalGood
-;   Пытаемся отразить
     neg bh
     
     add dh , bh
@@ -786,7 +761,6 @@ proc moveEnemies near   ;движение врага по спец алгоритму
     mov cl , [field + si]
     cmp cl , [sea]
     jne moveVerticalGood
-;   По этой оси больше двигаться нельзя
     sub dh , bh
     xor bh , bh
     
@@ -806,7 +780,7 @@ proc moveEnemies near   ;движение врага по спец алгоритму
     ret
 endp    
 
-proc move near  ;функции отвечающие за движение
+proc move near 
     call moveXonix
     call moveEnemies
     ret
@@ -817,8 +791,8 @@ proc level near
     
     mainLevelLoop:
 
-    mov ah , 01             ; проверка наличия символа в буфере
-    int 16h                 ;
+    mov ah , 01       
+    int 16h           
     
     call clearKeyboardBuffer
     
